@@ -1,0 +1,3 @@
+[submodule "mappings/testdata"]
+	path = mappings/testdata
+	url = https://github.com/Sculas/matcher-test-data.git

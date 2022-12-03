@@ -1,0 +1,16 @@
+[package]
+name = "mappings"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pest = "2.2"
+pest_derive = "2.2"
+pest_consume = "1.1.3"
+
+[dev-dependencies]
+datatest-stable = "0.1.3"
+
+[[test]]
+name = "mappings"
+harness = false
