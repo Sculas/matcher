@@ -1,23 +1,13 @@
-use crate::parser::Node;
-use std::num::ParseIntError;
+use crate::colreader::ColumnReader;
+use crate::parser::{ParseError, Result as ParseResult};
 
-pub trait NodeExt {
-    fn str(&self) -> String;
-    fn int(&self) -> Result<i64, ParseIntError>;
+pub trait ColumnReaderExt {
+    /// Returns the next column, or an error if the column is empty.
+    fn next_col_ne(&mut self, token: &'static str) -> ParseResult<&str>;
 }
 
-impl NodeExt for Node<'_> {
-    fn str(&self) -> String {
-        self.as_str().into()
+impl<'a> ColumnReaderExt for ColumnReader<'a> {
+    fn next_col_ne(&mut self, token: &'static str) -> ParseResult<&'a str> {
+        self.next_col().ok_or_else(|| ParseError::missing_token(self, token))
     }
-
-    fn int(&self) -> Result<i64, ParseIntError> {
-        self.as_str().parse()
-    }
-}
-
-pub struct MethodDescriptor {
-    pub name: Option<String>,
-    pub args: Vec<String>,
-    pub ty: String,
 }

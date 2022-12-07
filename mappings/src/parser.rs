@@ -1,154 +1,119 @@
-use super::*;
-use crate::utils::{MethodDescriptor, NodeExt};
-use pest_consume::{match_nodes, Error, Parser};
+use std::fmt::Display;
 
-#[derive(Parser)]
-#[grammar = "enigma.pest"]
-pub struct EnigmaParser;
+use crate::utils::ColumnReaderExt;
 
-pub type Result<T> = std::result::Result<T, Error<Rule>>;
-pub type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+use super::colreader::ColumnReader;
+use super::run;
+use super::types::*;
 
-const PRINT_AST: bool = false;
-macro_rules! prt_ast {
-    ($input:expr) => {
-        #[cfg(debug_assertions)]
-        if PRINT_AST {
-            dbg!($input.children());
+#[derive(Debug)]
+pub enum ParseError {
+    MissingToken {
+        token: &'static str,
+        eof: bool,
+        line: usize,
+        col: usize,
+    },
+}
+
+impl ParseError {
+    pub fn missing_token(parser: &ColumnReader, token: &'static str) -> Self {
+        Self::MissingToken {
+            token,
+            eof: parser.eof(),
+            line: parser.line,
+            col: parser.pos,
         }
-    };
-}
-
-#[pest_consume::parser]
-impl parser::EnigmaParser {
-    pub fn mappings(input: Node) -> Result<Mappings> {
-        prt_ast!(input);
-        Ok(match_nodes!(input.into_children();
-            [class(classes).., _] => Mappings(classes.collect()),
-        ))
-    }
-
-    fn class(input: Node) -> Result<ClassMapping> {
-        Ok(match_nodes!(input.into_children();
-            [name(obf), name(deobf), field_or_method(foms)..] => ClassMapping {
-                obf,
-                deobf: Some(deobf),
-                methods: foms.clone().filter_map(FOM::method).collect(),
-                fields: foms.filter_map(FOM::field).collect(),
-            },
-            [name(obf), field_or_method(foms)..] => ClassMapping {
-              obf,
-              deobf: None,
-              methods: foms.clone().filter_map(FOM::method).collect(),
-              fields: foms.filter_map(FOM::field).collect(),
-          },
-        ))
-    }
-
-    fn field_or_method(input: Node) -> Result<FOM> {
-        Ok(match_nodes!(input.into_children();
-            [method(method)] => FOM::Method(method),
-            [field(field)] => FOM::Field(field),
-        ))
-    }
-
-    fn method(input: Node) -> Result<MethodMapping> {
-        Ok(match_nodes!(input.into_children();
-            [name(obf), method_descriptor(descriptor), arg(arg_mappings)..] => MethodMapping {
-                obf,
-                deobf: descriptor.name,
-                args: descriptor.args,
-                ret: descriptor.ty,
-                arg_mappings: arg_mappings.collect(),
-            },
-        ))
-    }
-
-    fn field(input: Node) -> Result<FieldMapping> {
-        Ok(match_nodes!(input.into_children();
-            [name(obf), name(deobf), descriptor(ty)] => FieldMapping {
-                obf,
-                deobf,
-                ty,
-            },
-        ))
-    }
-
-    fn method_descriptor(input: Node) -> Result<MethodDescriptor> {
-        Ok(match_nodes!(input.into_children();
-            [name(name), descriptor(args).., descriptor(ty)] => MethodDescriptor {
-                name: Some(name),
-                args: args.collect(),
-                ty,
-            },
-            [descriptor(args).., descriptor(ty)] => MethodDescriptor {
-              name: None,
-              args: args.collect(),
-              ty,
-          },
-        ))
-    }
-
-    fn arg(input: Node) -> Result<ArgMapping> {
-        Ok(match_nodes!(input.into_children();
-            [number(index), name(deobf)] => ArgMapping {
-                index,
-                deobf,
-            },
-        ))
-    }
-
-    // string rules
-    fn name(input: Node) -> Result<String> {
-        Ok(input.str())
-    }
-    fn descriptor(input: Node) -> Result<String> {
-        Ok(input.str())
-    }
-    fn number(input: Node) -> Result<i64> {
-        input.int().map_err(|e| input.error(e))
-    }
-
-    // unused rules
-    fn EOI(_input: Node) -> Result<()> {
-        Ok(())
-    }
-    fn jtype(_input: Node) -> Result<()> {
-        Ok(())
     }
 }
 
-impl parser::EnigmaParser {
-    pub fn mappings_into(input: Node, mappings: &mut Mappings) -> Result<()> {
-        prt_ast!(input);
-        match_nodes!(input.into_children();
-            [class(classes).., _] => mappings.0.append(&mut classes.collect::<Vec<_>>()),
-        );
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    macro_rules! test {
-        ($name:ident, $file:expr, $fn:expr) => {
-            #[test]
-            fn $name() {
-                let input = include_str!(concat!("../testdata/", $file));
-                let res = match EnigmaParser::parse(Rule::mappings, input) {
-                    Ok(mut pairs) => pairs.next().unwrap(),
-                    Err(e) => panic!("{}", e),
-                };
-                $fn(res);
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingToken {
+                token,
+                eof,
+                line,
+                col,
+            } => {
+                write!(
+                    f,
+                    "unexpected {} at {}:{}, expected {}",
+                    if *eof { "EOF" } else { "token" },
+                    line,
+                    col,
+                    token
+                )
             }
-        };
+        }
+    }
+}
+
+pub(crate) type Result<T> = std::result::Result<T, ParseError>;
+
+struct EnigmaParser<'a>(ColumnReader<'a>, &'a mut Vec<ClassMapping>);
+
+impl<'a> EnigmaParser<'a> {
+    pub fn new(src: &'a str, classes: &'a mut Vec<ClassMapping>) -> Self {
+        Self(ColumnReader::new(src), classes)
     }
 
-    test!(standard, "standard.mapping", |node: Node| {
-        assert_eq!(node.as_rule(), Rule::mappings);
-        let class = node.into_children().next().unwrap();
-        assert_eq!(class.as_rule(), Rule::class);
-    });
+    pub fn parse(&mut self) -> Result<()> {
+        run!({
+            if self.0.next_col_expect("CLASS") { // CLASS <name-a> [<name-b>]
+                let class = self.parse_class(0, None, None)?;
+                self.1.push(class);
+            }
+        } while self.0.next_line(0));
+        Ok(())
+    }
+
+    fn parse_class(
+        &mut self,
+        indent: usize,
+        outer_a: Option<&str>,
+        outer_b: Option<&str>,
+    ) -> Result<ClassMapping> {
+        let original_a = self.0.next_col_ne("class-name-a")?;
+        let mut a = original_a.clone();
+        if let Some(outer_a) = outer_a {
+            a = &format!("{}${}", outer_a, a);
+        }
+        let mut b = self.0.next_col();
+        if let Some(outer_b) = outer_b {
+            b = Some(&format!("{}${}", outer_b, b.unwrap_or(original_a)));
+        }
+
+        let mut comment = None;
+        let mut methods = Vec::new();
+        let mut fields = Vec::new();
+        while self.0.next_line(indent) {
+            match self.0.next_col_ne("type")? {
+                "CLASS" => {
+                    let class = self.parse_class(indent + 1, Some(a), b)?;
+                    self.1.push(class);
+                }
+                // "METHOD" => {
+                //     let method = self.parse_method(indent + 1, a, b)?;
+                //     methods.push(method);
+                // }
+                // "FIELD" => {
+                //     let field = self.parse_field(indent + 1, a, b)?;
+                //     fields.push(field);
+                // }
+                "COMMENT" => {
+                    comment = Some(self.0.next_col_ne("comment")?.into());
+                }
+                _ => return Err(ParseError::missing_token(&self.0, "type")),
+            }
+        }
+
+        Ok(ClassMapping {
+            obf: a.into(),
+            deobf: b.map(|s| s.into()),
+            comment,
+            methods,
+            fields,
+        })
+    }
 }

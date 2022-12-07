@@ -1,5 +1,5 @@
 use clap::Parser;
-use mappings::Mappings;
+// use mappings::Mappings;
 // use dexlib::{multidex::StreamExt, MultiDexReader};
 use std::path::PathBuf;
 
@@ -17,9 +17,9 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let mappings = Mappings::from_files(vec![args.a, args.b])?;
-    println!("{:#?}", mappings.classes());
+    // let args = Args::parse();
+    // let mappings = Mappings::from_files(vec![args.a, args.b])?;
+    // println!("{:#?}", mappings.classes());
     Ok(())
 }
 
