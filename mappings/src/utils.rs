@@ -4,7 +4,7 @@ use crate::parser::{ParseError, Result as ParseResult};
 pub trait ColumnReaderExt {
     /// Returns the next column, or an error if the column is empty.
     fn next_col_ne(&mut self, token: &'static str) -> ParseResult<String>;
-    /// Returns the next column as `T`, or an error if the column is empty or cannot be parsed.
+    /// Returns the next column as an [`i64`], or an error if the column is empty or cannot be parsed.
     fn next_col_int(&mut self, token: &'static str) -> ParseResult<i64>;
 }
 
