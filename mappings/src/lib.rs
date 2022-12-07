@@ -1,34 +1,39 @@
-use std::path::Path;
-pub use types::*;
+#![feature(option_get_or_insert_default)]
+
+use std::{fs::read_to_string, path::Path};
 
 mod colreader;
 mod parser;
-pub(crate) mod types;
+pub mod types;
 mod utils;
 
-macro_rules! run {
-    ($e:block while $cond:expr) => {
-        while {
-            $e;
-            !$cond
-        } {}
-    };
+pub mod prelude {
+    pub use crate::parser::{EnigmaParser, ParseError, Result as ParseResult};
 }
-pub(crate) use run;
 
 #[derive(Clone, Debug)]
-pub struct Mappings(Vec<ClassMapping>);
+pub struct Mappings(Vec<types::ClassMapping>);
 
 impl Mappings {
-    pub fn new(input: String) -> Option<Self> {
-        None
+    pub fn new(input: String) -> parser::Result<Self> {
+        let mut mappings = Vec::new();
+        parser::EnigmaParser::new(input, &mut mappings).parse()?;
+        Ok(Self(mappings))
     }
 
-    pub fn from_files<P: AsRef<Path>>(files: Vec<P>) -> Option<Self> {
-        None
+    pub fn from_files<P: AsRef<Path>>(files: Vec<P>) -> parser::Result<Self> {
+        let mut mappings = Vec::new();
+        for file in files {
+            parser::EnigmaParser::new(
+                read_to_string(file).map_err(parser::ParseError::IoError)?,
+                &mut mappings,
+            )
+            .parse()?;
+        }
+        Ok(Self(mappings))
     }
 
-    pub fn classes(&self) -> &[ClassMapping] {
+    pub fn classes(&self) -> &[types::ClassMapping] {
         &self.0
     }
 }

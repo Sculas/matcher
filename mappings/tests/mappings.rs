@@ -1,7 +1,13 @@
+use mappings::Mappings;
 use std::{fs::read_to_string, path::Path};
 
 fn base_test(path: &Path) -> datatest_stable::Result<()> {
-    let _input = read_to_string(path)?;
+    let input = read_to_string(path)?;
+    let mappings = match Mappings::new(input) {
+        Ok(mappings) => mappings,
+        Err(err) => panic!("{}", err),
+    };
+    assert!(mappings.classes().len() > 0);
     Ok(())
 }
 
